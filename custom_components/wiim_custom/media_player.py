@@ -75,6 +75,9 @@ ATTR_TRCRC = 'track_current'
 ATTR_STURI = 'stream_uri'
 ATTR_UUID = 'uuid'
 ATTR_DEBUG = 'debug_info'
+ATTR_BITRATE = 'bit_rate'
+ATTR_SAMPLERATE = 'sample_rate'
+ATTR_DEPTH = 'bit_depth'
 
 CONF_NAME = 'name'
 CONF_UUID = 'uuid'
@@ -230,6 +233,9 @@ class WiiMDevice(MediaPlayerEntity):
         self._playing_mediabrowser = False
   
         self._unav_throttle = False
+        self._samplerate = None
+        self._bitrate = None
+        self._bitdepth = None
 
     async def async_added_to_hass(self):
         """Record entity."""
@@ -641,7 +647,12 @@ class WiiMDevice(MediaPlayerEntity):
             attributes[ATTR_TRCRC] = self._trackc
         if self._uuid != '':
             attributes[ATTR_UUID] = self._uuid
-
+        if self._samplerate:
+            attributes[ATTR_SAMPLERATE] = float(self._samplerate) / 1000
+        if self._bitrate:
+            attributes[ATTR_BITRATE] = self._bitrate
+        if self._bitdepth:
+            attributes[ATTR_DEPTH] = self._bitdepth
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
@@ -1162,6 +1173,9 @@ class WiiMDevice(MediaPlayerEntity):
         self._media_album = None
         self._media_artist = None
         self._media_image_url = None
+        self._samplerate = None
+        self._bitrate = None
+        self._bitdepth = None
 
         xml_tree = ET.fromstring(media_metadata)
 
@@ -1170,11 +1184,17 @@ class WiiMDevice(MediaPlayerEntity):
         artist_xml_path = "{urn:schemas-upnp-org:metadata-1-0/upnp/}artist"
         album_xml_path = "{urn:schemas-upnp-org:metadata-1-0/upnp/}album"
         image_xml_path = "{urn:schemas-upnp-org:metadata-1-0/upnp/}albumArtURI"
+        rate_hz_xml_path = "{www.wiimu.com/song/}rate_hz"
+        format_s_xml_path = "{www.wiimu.com/song/}format_s"
+        bitrate_xml_path = "{www.wiimu.com/song/}bitrate"
 
         title_node = xml_tree.find("{0}{1}".format(xml_path, title_xml_path))
         artist_node = xml_tree.find("{0}{1}".format(xml_path, artist_xml_path))
         album_node = xml_tree.find("{0}{1}".format(xml_path, album_xml_path))
         image_url_node = xml_tree.find("{0}{1}".format(xml_path, image_xml_path))
+        rate_hz_node = xml_tree.find("{0}{1}".format(xml_path, rate_hz_xml_path))
+        format_s_node = xml_tree.find("{0}{1}".format(xml_path, format_s_xml_path))
+        bitrate_node = xml_tree.find("{0}{1}".format(xml_path, bitrate_xml_path))
 
         if title_node is not None:
             self._media_title = title_node.text
@@ -1184,6 +1204,12 @@ class WiiMDevice(MediaPlayerEntity):
             self._media_album = album_node.text
         if image_url_node is not None:
             self._media_image_url = image_url_node.text
+        if rate_hz_node is not None:
+            self._samplerate = rate_hz_node.text
+        if format_s_node is not None:
+            self._bitdepth = format_s_node.text
+        if bitrate_node is not None:
+            self._bitrate = bitrate_node.text
 
         if self._media_image_url is not None:
             if not validators.url(self._media_image_url):
