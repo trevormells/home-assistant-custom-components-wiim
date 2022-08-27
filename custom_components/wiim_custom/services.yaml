@@ -1,6 +1,6 @@
 command:
   name: Command
-  description: Execute various linkplay-specific commands on the player.
+  description: Execute various wiim-specific commands on the player.
   fields:
     entity_id:
       name: Entity ID
@@ -9,10 +9,10 @@ command:
       required: true
       selector:
         entity:
-          integration: linkplay
+          integration: wiim_custom
     command:
       name: Command
-      description: 'To set the names for WriteDeviceNameToUnit and SetApSSIDName please switch to YAML mode and enter the name there.'
+      description:
       example: Update
       required: true
       selector:
