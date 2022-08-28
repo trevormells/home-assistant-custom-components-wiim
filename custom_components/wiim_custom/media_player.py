@@ -97,13 +97,14 @@ SOURCES_MAP = {'-1': 'Idle',
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
-               '10': 'Network', 
+               '10': 'Network',
+               '20': 'Network',			   
                '31': 'Spotify',
                '32': 'TIDAL',			   
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_STREAM = ['1', '2', '3', '10']
+SOURCES_STREAM = ['1', '2', '3', '10', '20']
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -124,7 +125,7 @@ class WiiMData:
         self.entities = []
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the LinkPlayDevice platform."""
+    """Set up the WiiM platform."""
 
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = WiiMData()
@@ -166,7 +167,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     except (asyncio.TimeoutError, aiohttp.ClientError) as error:
         _LOGGER.warning(
-            "Failed communicating with LinkPlayDevice (start) '%s': uuid: %s %s", host, uuid, type(error)
+            "Failed communicating with WiiM (start) '%s': uuid: %s %s", host, uuid, type(error)
         )
         state = STATE_UNAVAILABLE
 
@@ -179,7 +180,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities([wiim])
 		
 class WiiMDevice(MediaPlayerEntity):
-    """LinkPlayDevice Player Object."""
+    """WiiM Player Object."""
 
     def __init__(self, 
                  name, 
@@ -219,7 +220,6 @@ class WiiMDevice(MediaPlayerEntity):
         self._media_image_url = None
         self._media_uri = None
         self._media_uri_final = None
-
         self._player_statdata = {}
         self._first_update = True
 
@@ -244,6 +244,7 @@ class WiiMDevice(MediaPlayerEntity):
 		
     async def call_wiim_httpapi(self, cmd, jsn):
         """Get the latest data from HTTPAPI service."""
+        _LOGGER.debug("For: %s  cmd: %s  jsn: %s", self._name, cmd, jsn)
         url = "https://{0}/httpapi.asp?command={1}".format(self._host, cmd)
         
         if self._first_update:
@@ -258,7 +259,7 @@ class WiiMDevice(MediaPlayerEntity):
 
         except (asyncio.TimeoutError, aiohttp.ClientError) as error:
             _LOGGER.warning(
-                "Failed communicating with LinkPlayDevice (httpapi) '%s': %s", self._name, type(error)
+                "Failed communicating with WiiM (httpapi) '%s': %s", self._name, type(error)
             )
             return False
 
@@ -298,6 +299,8 @@ class WiiMDevice(MediaPlayerEntity):
             self._media_uri = None
             self._media_uri_final = None
             self._trackc = None
+            self._pl_tracks = None
+            self._pl_trackc = None
             self._playing_mediabrowser = False
             self._playing_stream = False
             self._playing_idle = True
@@ -305,9 +308,12 @@ class WiiMDevice(MediaPlayerEntity):
             self._source = None
             self._upnp_device = None
             self._first_update = True
-            self._player_statdata = None
+            self._player_statdata = {}
             self._service = None
             self._icon = ICON_DEFAULT
+            self._samplerate = None
+            self._bitrate = None
+            self._bitdepth = None
             self._features = None		
             return
         self._player_statdata = resp.copy()
@@ -318,7 +324,7 @@ class WiiMDevice(MediaPlayerEntity):
 
     async def async_update(self):
         """Update state."""
-        _LOGGER.debug("01 Start update %s, %s", self.entity_id, self._name)
+        #_LOGGER.debug("01 Start update %s, %s", self.entity_id, self._name)
 
 
         if self._unav_throttle:
@@ -361,7 +367,7 @@ class WiiMDevice(MediaPlayerEntity):
                                 self._upnp_device = await self._factory.async_create_device(url)
                             except:
                                 _LOGGER.warning(
-                                    "Failed communicating with LinkPlayDevice (UPnP) '%s': %s", self._name, type(error)
+                                    "Failed communicating with WiiM (UPnP) '%s': %s", self._name, type(error)
                                 )
 
                         if self._first_update:
@@ -415,7 +421,7 @@ class WiiMDevice(MediaPlayerEntity):
             self._playing_idle = self._player_statdata['mode'] in SOURCES_IDLE
             self._playing_stream = self._player_statdata['mode'] in SOURCES_STREAM
 
-            self._playing_mediabrowser = bool(self._player_statdata['mode'] == '10')
+            self._playing_mediabrowser = bool(self._player_statdata['mode'] in ['10', '20'])
 
 
             self._source = SOURCES_MAP.get(self._player_statdata['mode'], 'Network')			
@@ -471,9 +477,6 @@ class WiiMDevice(MediaPlayerEntity):
                     self._media_artist = None
                     self._media_album = None
                     self._media_image_url = None
-
-
-
 
             self._media_prev_artist = self._media_artist
             self._media_prev_title = self._media_title
@@ -634,6 +637,9 @@ class WiiMDevice(MediaPlayerEntity):
         """List members in group and set master and slave state."""
         attributes = {}
 
+        attributes[ATTR_SAMPLERATE] = ''
+        attributes[ATTR_BITRATE] = ''
+        attributes[ATTR_DEPTH] = ''
 
         if self._media_uri:
             attributes[ATTR_STURI] = self._media_uri
@@ -648,9 +654,9 @@ class WiiMDevice(MediaPlayerEntity):
         if self._uuid != '':
             attributes[ATTR_UUID] = self._uuid
         if self._samplerate:
-            attributes[ATTR_SAMPLERATE] = float(self._samplerate) / 1000
+            attributes[ATTR_SAMPLERATE] = str(float(self._samplerate) / 1000) + ' kHz'
         if self._bitrate:
-            attributes[ATTR_BITRATE] = self._bitrate
+            attributes[ATTR_BITRATE] = self._bitrate + ' kbps'
         if self._bitdepth:
             attributes[ATTR_DEPTH] = self._bitdepth
 
@@ -762,14 +768,10 @@ class WiiMDevice(MediaPlayerEntity):
     async def async_media_stop(self):
         """Send stop command."""
  
-        if self._playing_connect or self._playing_idle:
+        if self._playing_connect or self._playing_idle or self._playing_stream:
             await self.call_wiim_httpapi("setPlayerCmd:pause", None)
             await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
-            # self._wait_for_mcu = 1.2
 
-        if self._playing_stream:  #recent firmwares don't stop the previous stream quickly enough
-            await self.call_wiim_httpapi("setPlayerCmd:pause", None)
-            await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
 
         value = await self.call_wiim_httpapi("setPlayerCmd:stop", None)
         if value == "OK":
@@ -779,12 +781,13 @@ class WiiMDevice(MediaPlayerEntity):
             self._media_title = None
  
             self._source = None
-
+ 
             self._media_artist = None
             self._media_album = None
 
             self._media_uri = None
             self._media_uri_final = None
+
             self._playing_mediabrowser = False
             self._playing_stream = False
             self._playing_connect = False
@@ -793,6 +796,9 @@ class WiiMDevice(MediaPlayerEntity):
             self._position_updated_at = utcnow()
             self._idletime_updated_at = self._position_updated_at
             self._connect_paused_at = None
+            self._samplerate = None
+            self._bitrate = None
+            self._bitdepth = None
 
         else:
             _LOGGER.warning("Failed to stop playback. Device: %s, Got response: %s", self.entity_id, value)
@@ -815,23 +821,21 @@ class WiiMDevice(MediaPlayerEntity):
         """Play media from a URL or localfile."""
         _LOGGER.debug("Trying to play media. Device: %s, Media_type: %s, Media_id: %s", self.entity_id, media_type, media_id)
 
+        self._playing_mediabrowser = True
+
         if not (media_type in [MEDIA_TYPE_URL] or media_source.is_media_source_id(media_id)):
             _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MEDIA_TYPE_URL)
             await self.async_media_stop()
             return False
             
    
-        self._playing_mediabrowser = False
+
 
 
         if media_source.is_media_source_id(media_id):
-            play_item = await media_source.async_resolve_media(self.hass, media_id)
-            if media_id.find('radio_browser') != -1:  # radios are an exception, be treated by server redirect checker and icecast metadata parser
+            play_item = await media_source.async_resolve_media(self.hass, media_id, self.entity_id)
+            if media_id.find('radio_browser') != -1:  # radios are an exception, be treated by server redirect checker
                 self._playing_mediabrowser = False
-            else:
-                self._playing_mediabrowser = True
-
-
 
             media_id = play_item.url
             if not play_item.mime_type in ['audio/basic',
@@ -868,30 +872,37 @@ class WiiMDevice(MediaPlayerEntity):
         if media_id_check.startswith('http'):
             media_type = MEDIA_TYPE_URL
 
-        if media_id_check.endswith('.m3u') or media_id_check.endswith('.m3u8'):
-            _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id)
-            media_id = await self.async_parse_m3u_url(media_id)
+        if media_type != MEDIA_TYPE_URL:
+            _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MEDIA_TYPE_URL)
+            await self.async_media_stop()
+            return False
 
-        if media_id_check.endswith('.pls'):
-            _LOGGER.debug("For: %s, Detected PLS list: %s, Media_id: %s", self._name, media_id)
-            media_id = await self.async_parse_pls_url(media_id)
 
-        if media_type == MEDIA_TYPE_URL:
-            if self._playing_mediabrowser:
-                media_id_final = media_id
-            else:
-                media_id_final = await self.async_detect_stream_url_redirection(media_id)
+        if self._playing_mediabrowser:
+            media_id_final = media_id
+        else:
+            media_id_final = await self.async_detect_stream_url_redirection(media_id)
 
-            if self._state == STATE_PLAYING:
-                await self.call_wiim_httpapi("setPlayerCmd:pause", None)
+        if self._state == STATE_PLAYING:
+            await self.call_wiim_httpapi("setPlayerCmd:pause", None)
                 
-            if self._playing_connect:  # disconnect from Spotify before playing new http source
-                await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
+        if self._playing_connect:  # disconnect from Spotify before playing new http source
+            await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
 
-            value = await self.call_wiim_httpapi("setPlayerCmd:play:{0}".format(media_id_final), None)
-            if value != "OK":
-                _LOGGER.warning("Failed to play media type URL. Device: %s, Got response: %s, Media_Id: %s", self.entity_id, value, media_id)
+        if media_id_check.find('.m3u') != -1:
+            _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id)
+            
+            if await self.async_parse_m3u_url(media_id_final):
+                value = await self.call_wiim_httpapi("setPlayerCmd:playlist:{0}:0".format(media_id_final), None)
+            else:
+                self._playing_mediabrowser = False
                 return False
+        else:
+            value = await self.call_wiim_httpapi("setPlayerCmd:play:{0}".format(media_id_final), None)
+        if value != "OK":
+            _LOGGER.warning("Failed to play media type URL. Device: %s, Got response: %s, Media_Id: %s", self.entity_id, value, media_id)
+            self._playing_mediabrowser = False
+            return False
 
 
         self._state = STATE_PLAYING
@@ -910,11 +921,14 @@ class WiiMDevice(MediaPlayerEntity):
         self._position_updated_at = utcnow()
         self._idletime_updated_at = self._position_updated_at
         self._media_image_url = None
+        self._samplerate = None
+        self._bitrate = None
+        self._bitdepth = None
 
         self._unav_throttle = False
-        if media_type == MEDIA_TYPE_URL:
-            self._media_uri = media_id
-            self._media_uri_final = media_id_final
+
+        self._media_uri = media_id
+        self._media_uri_final = media_id_final
 
         return True
 
@@ -952,7 +966,6 @@ class WiiMDevice(MediaPlayerEntity):
         if value != "OK":
             _LOGGER.warning("Failed to change repeat mode. Device: %s, Got response: %s", self.entity_id, value)
 
-	
 
     async def async_detect_stream_url_redirection(self, uri):
         if uri.find('tts_proxy') != -1: # skip redirect check for local TTS streams
@@ -988,7 +1001,7 @@ class WiiMDevice(MediaPlayerEntity):
             _LOGGER.warning(
                 "For: %s unable to get the M3U playlist: %s", self._name, playlist
             )
-            return playlist
+            return False
 
         if response.status == HTTPStatus.OK:
             data = await response.text()
@@ -997,16 +1010,15 @@ class WiiMDevice(MediaPlayerEntity):
             lines = [line.strip("\n\r") for line in data.split("\n") if line.strip("\n\r") != ""]
             if len(lines) > 0:
                 _LOGGER.debug("For: %s M3U playlist: %s  lines: %s", self._name, playlist, lines)
-                urls = [u for u in lines if u.startswith('http')]
-                _LOGGER.debug("For: %s M3U playlist: %s  urls: %s", self._name, playlist, urls)
-                if len(urls) > 0:
-                    return urls[0]
+                noturls = [u for u in lines if not u.startswith('http')]
+                _LOGGER.debug("For: %s M3U playlist: %s  not urls: %s", self._name, playlist, noturls)
+                if len(noturls) > 0:
+                    return False
                 else:
-                    _LOGGER.error("For: %s M3U playlist: %s No valid http URL in the playlist!!!", self._name, playlist)
-
+                    return True
             else:
                 _LOGGER.error("For: %s M3U playlist: %s No content to parse!!!", self._name, playlist)
-
+                return False
         else:
             _LOGGER.error(
                 "For: %s (%s) Get failed, response code: %s Full message: %s",
@@ -1015,60 +1027,12 @@ class WiiMDevice(MediaPlayerEntity):
                 response.status,
                 response,
             )
+            return False
 
-        return playlist		
+        return False		
 		
 		
-    async def async_parse_pls_url(self, playlist):
-        """Parse a PLS playlist URL for actual streams, and return the first one"""
-        try:
-            websession = async_get_clientsession(self.hass)
-            async with async_timeout.timeout(10):
-                response = await websession.get(playlist, ssl=False)
-
-        except (asyncio.TimeoutError, aiohttp.ClientError) as error:
-            _LOGGER.warning(
-                "For: %s unable to get the PLS playlist: %s", self._name, playlist
-            )
-            return playlist
-
-        if response.status == HTTPStatus.OK:
-            data = await response.text()
-            _LOGGER.debug("For: %s PLS playlist: %s  contents: %s", self._name, playlist, data)
-
-            lines = [line.strip("\n\r") for line in data.split("\n") if line.strip("\n\r") != ""]
-            if len(lines) > 0:
-                _LOGGER.debug("For: %s PLS playlist: %s  lines: %s", self._name, playlist, lines)
-                urls = [u for u in lines if u.startswith('File')]
-                _LOGGER.debug("For: %s PLS playlist: %s  urls: %s", self._name, playlist, urls)
-                if len(urls) > 0:
-                    url = urls[0].split('=')
-                    if len(url) > 1:
-                        return url[1]
-                else:
-                    _LOGGER.error("For: %s PLS playlist: %s No valid http URL in the playlist!!!", self._name, playlist)
-
-            else:
-                _LOGGER.error("For: %s PLS playlist: %s No content to parse!!!", self._name, playlist)
-
-        else:
-            _LOGGER.error(
-                "For: %s (%s) Get failed, response code: %s Full message: %s",
-                self._name,
-                self._host,
-                response.status,
-                response,
-            )
-
-        return playlist		
-		
-
-    async def async_is_playing_new_track(self):
-        """Check if track is changed since last update."""
-        if self._media_artist != self._media_prev_artist or self._media_title != self._media_prev_title:
-            return True
-        else:
-            return False		
+	
 		
 
     async def async_set_media_title(self, title):
@@ -1153,7 +1117,10 @@ class WiiMDevice(MediaPlayerEntity):
         if self._upnp_device is None:
             return
 
+        _LOGGER.debug("Update via UPnP for: %s", self.entity_id)
+
         self._service = self._upnp_device.service('urn:schemas-upnp-org:service:AVTransport:1')
+        #_LOGGER.debug("GetMediaInfo for: %s, UPNP service:%s", self.entity_id, self._service)
         
         media_info = dict()
         media_metadata = None
@@ -1162,12 +1129,9 @@ class WiiMDevice(MediaPlayerEntity):
             self._trackc = media_info.get('CurrentURI')
             self._media_uri_final = media_info.get('TrackSource')
             media_metadata = media_info.get('CurrentURIMetaData')
-            _LOGGER.debug("GetMediaInfo for: %s, UPNP media_metadata:%s", self.entity_id, media_info)
+            #_LOGGER.debug("GetMediaInfo for: %s, UPNP media_metadata:%s", self.entity_id, media_info)
         except:
             _LOGGER.warning("GetMediaInfo/CurrentURIMetaData UPNP error: %s", self.entity_id)
-
-        if media_metadata is None:
-            return
 
         self._media_title = None
         self._media_album = None
@@ -1176,6 +1140,10 @@ class WiiMDevice(MediaPlayerEntity):
         self._samplerate = None
         self._bitrate = None
         self._bitdepth = None
+
+        if media_metadata is None:
+            return
+
 
         xml_tree = ET.fromstring(media_metadata)
 
