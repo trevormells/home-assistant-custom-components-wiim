@@ -44,7 +44,7 @@ play_url:
     url:
       name: URL
       description: URL string
-      example: 'http://xyz.com/test.mp3'
+      example: http://xyz.com/test.mp3
       required: true
       selector:
         text:
