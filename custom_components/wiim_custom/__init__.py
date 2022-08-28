@@ -29,7 +29,7 @@ CMND_SERVICE_SCHEMA = vol.Schema({
 
 PLAY_URL_SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-    vol.Required(ATTR_URL): cv.template
+    vol.Required(ATTR_URL): cv.string
 })
 
 _LOGGER = logging.getLogger(__name__)

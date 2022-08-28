@@ -31,7 +31,7 @@ command:
         
 play_url:
   name: Play URL
-  description: Play URL.
+  description: Play URL file.
   fields:
     entity_id:
       name: Entity ID
