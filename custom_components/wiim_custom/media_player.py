@@ -308,7 +308,7 @@ class WiiMDevice(MediaPlayerEntity):
             self._source = None
             self._upnp_device = None
             self._first_update = True
-            self._player_statdata = {}
+            self._player_statdata = None
             self._service = None
             self._icon = ICON_DEFAULT
             self._samplerate = None
@@ -890,7 +890,7 @@ class WiiMDevice(MediaPlayerEntity):
             await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
 
         if media_id_check.find('.m3u') != -1:
-            _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id)
+            _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id_final, media_id)
             
             if await self.async_parse_m3u_url(media_id_final):
                 value = await self.call_wiim_httpapi("setPlayerCmd:playlist:{0}:0".format(media_id_final), None)
