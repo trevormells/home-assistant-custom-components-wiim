@@ -1098,7 +1098,7 @@ class WiiMDevice(MediaPlayerEntity):
         """Simulate pressing a physical preset button."""
         if self._preset_key != None and preset != None:
             if int(preset) > 0 and int(preset) <= self._preset_key:
-                value = await self.call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
+                value = await self.call_wiim_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
 
                 if value != "OK":
                     _LOGGER.warning("Failed to recall preset %s. " "Device: %s, Got response: %s", self.entity_id, preset, value)
