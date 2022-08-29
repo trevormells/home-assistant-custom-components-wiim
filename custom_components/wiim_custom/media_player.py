@@ -662,8 +662,10 @@ class WiiMDevice(MediaPlayerEntity):
             attributes[ATTR_SAMPLERATE] = str(float(self._samplerate) / 1000) + ' kHz'
         if self._bitrate:
             attributes[ATTR_BITRATE] = self._bitrate + ' kbps'
-        if self._bitdepth:
-            attributes[ATTR_DEPTH] = self._bitdepth
+        if self._bitdepth and int(self._bitdepth) > 24:
+            attributes[ATTR_DEPTH] = '24'
+        elif self._bitdepth:
+            attributes[ATTR_DEPTH] = self._bitdepth			
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
