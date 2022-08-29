@@ -48,3 +48,26 @@ play_url:
       required: true
       selector:
         text:
+preset:
+  name: Preset
+  description: Recall content preset from the device.
+  fields:
+    entity_id:
+      name: Entity ID
+      description: Entity ID of the player for which the preset will be recalled.
+      example: media_player.sound_room1
+      required: true
+      selector:
+        entity:
+          integration: wiim_custom
+    preset:
+      name: Preset
+      description: Content preset number on the device
+      example: 1
+      required: true
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 12
+          mode: box

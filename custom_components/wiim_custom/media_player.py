@@ -196,7 +196,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._upnp_device = None
         self._service = None
         self._features = None
-
+        self._preset_key = 6
         self._name = name
         self._host = host
         self._icon = ICON_DEFAULT
@@ -360,6 +360,11 @@ class WiiMDevice(MediaPlayerEntity):
                             self._fw_ver = device_status['firmware']
                         except KeyError:
                             self._fw_ver = '1.0.0'							
+
+                        try:
+                            self._preset_key = int(device_status['preset_key'])
+                        except KeyError:
+                            self._preset_key = 6
 
                         if self._upnp_device is None: # and self._name is not None:
                             url = "http://{0}:49152/description.xml".format(self._host)
@@ -1088,6 +1093,18 @@ class WiiMDevice(MediaPlayerEntity):
     async def async_set_unav_throttle(self, unav_throttle):
         """Set update throttle property."""
         self._unav_throttle = unav_throttle		
+
+    async def async_preset_button(self, preset):
+        """Simulate pressing a physical preset button."""
+        if self._preset_key != None and preset != None:
+            if int(preset) > 0 and int(preset) <= self._preset_key:
+                value = await self.call_linkplay_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
+
+                if value != "OK":
+                    _LOGGER.warning("Failed to recall preset %s. " "Device: %s, Got response: %s", self.entity_id, preset, value)
+            else:
+                _LOGGER.warning("Wrong preset number %s. Device: %s, has to be integer between 1 and %s", self.entity_id, preset, self._preset_key)
+
 		
 		
     async def async_execute_command(self, command, notif):

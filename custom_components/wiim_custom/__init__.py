@@ -14,15 +14,18 @@ DOMAIN = 'wiim_custom'
 
 SERVICE_CMD = 'command'
 SERVICE_PLAY_URL = 'play_url'
+SERVICE_PRESET = 'preset'
 
 
 ATTR_CMD = 'command'
 ATTR_NOTIF = 'notify'
 ATTR_URL = 'url'
+ATTR_PRESET = 'preset'
+
 
 
 CMND_SERVICE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
+    vol.Required(ATTR_ENTITY_ID): cv.entity_id,
     vol.Required(ATTR_CMD): cv.string,
     vol.Optional(ATTR_NOTIF, default=True): cv.boolean
 })
@@ -30,6 +33,11 @@ CMND_SERVICE_SCHEMA = vol.Schema({
 PLAY_URL_SERVICE_SCHEMA = vol.Schema({
     vol.Required(ATTR_ENTITY_ID): cv.entity_id,
     vol.Required(ATTR_URL): cv.string
+})
+
+PRESET_BUTTON_SCHEMA = vol.Schema({
+    vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+    vol.Required(ATTR_PRESET): cv.positive_int
 })
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,11 +70,18 @@ def setup(hass, config):
                 if device.entity_id in entity_ids:
                     _LOGGER.debug("**PLAY URL** entity: %s; url: %s", device.entity_id, url)
                     await device.call_wiim_httpapi("setPlayerCmd:play:{0}".format(url), None)
-
+        elif service.service == SERVICE_PRESET:
+            preset = service.data.get(ATTR_PRESET)
+            for device in entities:
+                if device.entity_id in entity_ids:
+                    _LOGGER.debug("**PRESET** entity: %s; preset: %s", device.entity_id, preset)
+                    await device.async_preset_button(preset)
 
     hass.services.async_register(
         DOMAIN, SERVICE_CMD, async_service_handle, schema=CMND_SERVICE_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_PLAY_URL, async_service_handle, schema=PLAY_URL_SERVICE_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, SERVICE_PRESET, async_service_handle, schema=PRESET_BUTTON_SCHEMA)
 
     return True
