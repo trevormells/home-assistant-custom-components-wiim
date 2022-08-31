@@ -665,7 +665,7 @@ class WiiMDevice(MediaPlayerEntity):
         if self._bitdepth and int(self._bitdepth) > 24:
             attributes[ATTR_DEPTH] = '24'
         elif self._bitdepth:
-            attributes[ATTR_DEPTH] = self._bitdepth			
+            attributes[ATTR_DEPTH] = self._bitdepth
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
