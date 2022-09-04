@@ -172,10 +172,10 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         state = STATE_UNAVAILABLE
 
     wiim = WiiMDevice(name, 
-                            host, 
-                            uuid,
-                            state,
-                            hass)
+                      host, 
+                      uuid,
+                      state,
+                      hass)
 
     async_add_entities([wiim])
 		
@@ -194,7 +194,8 @@ class WiiMDevice(MediaPlayerEntity):
         requester = AiohttpRequester(UPNP_TIMEOUT)
         self._factory = UpnpFactory(requester, disable_unknown_out_argument_error=True)
         self._upnp_device = None
-        self._service = None
+        self._service_transport = None
+        self._service_control = None
         self._features = None
         self._preset_key = 6
         self._name = name
@@ -221,6 +222,8 @@ class WiiMDevice(MediaPlayerEntity):
         self._media_uri = None
         self._media_uri_final = None
         self._player_statdata = {}
+        self._player_mediainfo = {}
+        self._player_deviceinfo = {}
         self._first_update = True
 
         self._pl_tracks = None
@@ -284,8 +287,30 @@ class WiiMDevice(MediaPlayerEntity):
 		
     @Throttle(UNA_THROTTLE)
     async def async_get_status(self):
-        resp = await self.call_wiim_httpapi("getPlayerStatus", True)
-        if resp is False:
+        resp1 = False
+        resp2 = False
+        resp3 = False
+        if self._upnp_device is not None:
+            if self._service_transport is None:
+                self._service_transport = self._upnp_device.service('urn:schemas-upnp-org:service:AVTransport:1')
+            if self._service_control is None:
+                self._service_control = self._upnp_device.service('urn:schemas-upnp-org:service:RenderingControl:1')
+
+            resp1 = dict()
+            resp2 = dict()
+            resp3 = dict()
+            try:
+                resp1 = await self._service_transport.action("GetInfoEx").async_call(InstanceID=0)
+                _LOGGER.debug("GetInfoEx for: %s, UPNP data: %s", self.entity_id, resp1)
+                resp2 = await self._service_control.action("GetControlDeviceInfo").async_call(InstanceID=0)
+                _LOGGER.debug("GetControlDeviceInfo for: %s, UPNP data: %s", self.entity_id, resp2)
+                resp3 = await self._service_transport.action("GetMediaInfo").async_call(InstanceID=0)
+                _LOGGER.debug("GetMediaInfo for: %s, UPNP data: %s", self.entity_id, resp3)
+            except:
+                resp1 = False
+                resp2 = False
+                resp3 = False
+        if resp1 is False or resp2 is False or resp3 is False:
             _LOGGER.debug('Unable to connect to device: %s, %s', self.entity_id, self._name)
             self._state = STATE_UNAVAILABLE
             self._unav_throttle = True
@@ -309,14 +334,19 @@ class WiiMDevice(MediaPlayerEntity):
             self._upnp_device = None
             self._first_update = True
             self._player_statdata = None
-            self._service = None
+            self._player_mediainfo = None
+            self._player_deviceinfo = None
+            self._service_transport = None
+            self._service_control = None
             self._icon = ICON_DEFAULT
             self._samplerate = None
             self._bitrate = None
             self._bitdepth = None
             self._features = None		
             return
-        self._player_statdata = resp.copy()
+        self._player_statdata = resp1.copy()
+        self._player_deviceinfo = resp2.copy()
+        self._player_mediainfo = resp3.copy()
 		
     async def async_trigger_schedule_update(self, before):
         await self.async_schedule_update_ha_state(before)	
@@ -326,6 +356,14 @@ class WiiMDevice(MediaPlayerEntity):
         """Update state."""
         #_LOGGER.debug("01 Start update %s, %s", self.entity_id, self._name)
 
+        if self._upnp_device is None: 
+            url = "http://{0}:49152/description.xml".format(self._host)
+            try:
+                self._upnp_device = await self._factory.async_create_device(url)
+            except:
+                _LOGGER.warning(
+                    "Failed communicating with WiiM (UPnP) '%s': %s", self._name, type(error)
+                )
 
         if self._unav_throttle:
             await self.async_get_status()
@@ -366,14 +404,7 @@ class WiiMDevice(MediaPlayerEntity):
                         except KeyError:
                             self._preset_key = 6
 
-                        if self._upnp_device is None: # and self._name is not None:
-                            url = "http://{0}:49152/description.xml".format(self._host)
-                            try:
-                                self._upnp_device = await self._factory.async_create_device(url)
-                            except:
-                                _LOGGER.warning(
-                                    "Failed communicating with WiiM (UPnP) '%s': %s", self._name, type(error)
-                                )
+
 
                         if self._first_update:
                             self._duration = 0
@@ -383,53 +414,55 @@ class WiiMDevice(MediaPlayerEntity):
 
             self._position_updated_at = utcnow()
 
-            self._pl_tracks = self._player_statdata['plicount']
-            self._pl_trackc = self._player_statdata['plicurr']
+            self._pl_tracks = self._player_mediainfo['NrTracks']
+            self._pl_trackc = self._player_statdata['Track']
 
             #_LOGGER.debug("04 Update VOL, Shuffle, Repeat, STATE %s, %s", self.entity_id, self._name)
-            self._volume = self._player_statdata['vol']
-            self._muted = bool(int(self._player_statdata['mute'])) 
+            self._volume = self._player_statdata['CurrentVolume']
+            self._muted = bool(self._player_deviceinfo['CurrentMute']) 
 
             self._shuffle = {
-                '2': True,
-                '3': True,
-            }.get(self._player_statdata['loop'], False)
+                2: True,
+                3: True,
+            }.get(self._player_statdata['LoopMode'], False)
 
             self._repeat = {
-                '0': REPEAT_MODE_ALL,
-                '1': REPEAT_MODE_ONE,
-                '2': REPEAT_MODE_ALL,
-            }.get(self._player_statdata['loop'], REPEAT_MODE_OFF)
+                0: REPEAT_MODE_ALL,
+                1: REPEAT_MODE_ONE,
+                2: REPEAT_MODE_ALL,
+            }.get(self._player_statdata['LoopMode'], REPEAT_MODE_OFF)
 
             
-            if self._player_statdata['mode'] in SOURCES_IDLE or self._player_statdata['status'] in ['stop', 'none']: 
+            if self._player_statdata['PlayType'] in SOURCES_IDLE or self._player_statdata['CurrentTransportState'] in ['STOPPED', 'NO_MEDIA_PRESENT']: 
                 if utcnow() >= (self._idletime_updated_at + AUTOIDLE_STATE_TIMEOUT):
                     self._state = STATE_IDLE
                     #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
-            elif self._player_statdata['status'] in ['play', 'load']:
+            elif self._player_statdata['CurrentTransportState'] in ['PLAYING', 'TRANSITIONING']:
                 self._state = STATE_PLAYING
                 #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
-            elif self._player_statdata['status'] == 'pause':
+            elif self._player_statdata['CurrentTransportState'] == 'PAUSED_PLAYBACK':
                 self._state = STATE_PAUSED
                 #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
 
             if self._state in [STATE_PLAYING, STATE_PAUSED]:
-                self._duration = int(int(self._player_statdata['totlen']) / 1000)
-                self._playhead_position = int(int(self._player_statdata['curpos']) / 1000)
+                x = self._player_statdata['TrackDuration']
+                self._duration = int(sum([int(x)*int(y) for x,y in zip([3600,60,1],x.split(":"))]))
+                x = self._player_statdata['RelTime']
+                self._playhead_position = int(sum([int(x)*int(y) for x,y in zip([3600,60,1],x.split(":"))]))
                 #_LOGGER.debug("04 Update DUR, POS %s, %s, %s, %s, %s", self.entity_id, self._name, self._state, self._duration, self._playhead_position)
             else:
                 self._duration = 0
                 self._playhead_position = 0
 
             #_LOGGER.debug("05 Update self._playing_whatever %s, %s", self.entity_id, self._name)
-            self._playing_connect = self._player_statdata['mode'] in SOURCES_CONNECT		
-            self._playing_idle = self._player_statdata['mode'] in SOURCES_IDLE
-            self._playing_stream = self._player_statdata['mode'] in SOURCES_STREAM
+            self._playing_connect = self._player_statdata['PlayType'] in SOURCES_CONNECT		
+            self._playing_idle = self._player_statdata['PlayType'] in SOURCES_IDLE
+            self._playing_stream = self._player_statdata['PlayType'] in SOURCES_STREAM
 
-            self._playing_mediabrowser = bool(self._player_statdata['mode'] in ['10', '20'])
+            self._playing_mediabrowser = bool(self._player_statdata['PlayType'] in ['10', '20'])
 
 
-            self._source = SOURCES_MAP.get(self._player_statdata['mode'], 'Network')			
+            self._source = SOURCES_MAP.get(self._player_statdata['PlayType'], 'Network')			
 
 
             if self._source != 'Network' and not (self._playing_stream or self._playing_connect):
@@ -445,7 +478,7 @@ class WiiMDevice(MediaPlayerEntity):
                 self._media_album = None
                 self._media_image_url = None
 
-            if self._player_statdata['mode'] in ['1', '2', '3']:
+            if self._player_statdata['PlayType'] in ['1', '2', '3']:
                 #_LOGGER.debug("08 Line Inputs name playing: %s, %s", self.entity_id, self._name)
                 self._state = STATE_PLAYING
                 self._media_title = self._source
@@ -1116,7 +1149,7 @@ class WiiMDevice(MediaPlayerEntity):
             self._first_update = True
             value = "Scheduled to Rescan"
         elif command == 'reboot':
-            value = await self.call_wiim_httpapi("reboot;", None)
+            value = await self.call_wiim_httpapi("reboot", None)
         else:
             value = "No such command implemented."
             _LOGGER.warning("Player %s command: %s, result: %s", self.entity_id, command, value)
@@ -1133,22 +1166,15 @@ class WiiMDevice(MediaPlayerEntity):
         """Update track info via UPNP."""
         import validators
 
-        if self._upnp_device is None:
+        if self._player_mediainfo is None:
             return
 
-        _LOGGER.debug("Update via UPnP for: %s", self.entity_id)
-
-        self._service = self._upnp_device.service('urn:schemas-upnp-org:service:AVTransport:1')
-        #_LOGGER.debug("GetMediaInfo for: %s, UPNP service:%s", self.entity_id, self._service)
-        
-        media_info = dict()
         media_metadata = None
         try:
-            media_info = await self._service.action("GetMediaInfo").async_call(InstanceID=0)
-            self._trackc = media_info.get('CurrentURI')
-            self._media_uri_final = media_info.get('TrackSource')
-            media_metadata = media_info.get('CurrentURIMetaData')
-            #_LOGGER.debug("GetMediaInfo for: %s, UPNP media_metadata:%s", self.entity_id, media_info)
+            self._trackc = self._player_mediainfo.get('CurrentURI')
+            self._media_uri_final = self._player_mediainfo.get('TrackSource')
+            media_metadata = self._player_mediainfo.get('CurrentURIMetaData')
+            #_LOGGER.debug("GetMediaInfo for: %s, UPNP media_metadata:%s", self.entity_id, self._player_mediainfo)
         except:
             _LOGGER.warning("GetMediaInfo/CurrentURIMetaData UPNP error: %s", self.entity_id)
 
