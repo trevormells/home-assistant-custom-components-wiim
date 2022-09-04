@@ -303,9 +303,9 @@ class WiiMDevice(MediaPlayerEntity):
                 resp1 = await self._service_transport.action("GetInfoEx").async_call(InstanceID=0)
                 _LOGGER.debug("GetInfoEx for: %s, UPNP data: %s", self.entity_id, resp1)
                 resp2 = await self._service_control.action("GetControlDeviceInfo").async_call(InstanceID=0)
-                _LOGGER.debug("GetControlDeviceInfo for: %s, UPNP data: %s", self.entity_id, resp2)
+                #_LOGGER.debug("GetControlDeviceInfo for: %s, UPNP data: %s", self.entity_id, resp2)
                 resp3 = await self._service_transport.action("GetMediaInfo").async_call(InstanceID=0)
-                _LOGGER.debug("GetMediaInfo for: %s, UPNP data: %s", self.entity_id, resp3)
+                #_LOGGER.debug("GetMediaInfo for: %s, UPNP data: %s", self.entity_id, resp3)
             except:
                 resp1 = False
                 resp2 = False
