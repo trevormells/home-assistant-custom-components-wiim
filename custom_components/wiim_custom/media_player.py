@@ -362,7 +362,7 @@ class WiiMDevice(MediaPlayerEntity):
                 self._upnp_device = await self._factory.async_create_device(url)
             except:
                 _LOGGER.warning(
-                    "Failed communicating with WiiM (UPnP) '%s': %s", self._name, type(error)
+                    "Failed communicating with WiiM (UPnP) '%s'", self._name
                 )
 
         if self._unav_throttle:
