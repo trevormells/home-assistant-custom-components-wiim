@@ -478,10 +478,10 @@ class WiiMDevice(MediaPlayerEntity):
                 self._media_album = None
                 self._media_image_url = None
 
-            if self._player_statdata['PlayType'] in ['1', '2', '3']:
+            #if self._player_statdata['PlayType'] in ['1', '2', '3']:
                 #_LOGGER.debug("08 Line Inputs name playing: %s, %s", self.entity_id, self._name)
-                self._state = STATE_PLAYING
-                self._media_title = self._source
+                #self._state = STATE_PLAYING
+                #self._media_title = self._source
 
             if self._playing_connect and self._state == STATE_IDLE:
                 self._source = None
