@@ -40,6 +40,7 @@ PRESET_BUTTON_SCHEMA = vol.Schema({
     vol.Required(ATTR_PRESET): cv.positive_int
 })
 
+
 _LOGGER = logging.getLogger(__name__)
 
 def setup(hass, config):

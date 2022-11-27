@@ -1,7 +1,7 @@
 {
   "domain": "wiim_custom",
   "name": "WiiM",
-  "version":"0.0.1",
+  "version":"0.3.2-beta",
   "documentation": "https://github.com/onlyoneme/home-assistant-custom-components-wiim",
   "issue_tracker": "https://github.com/onlyoneme/home-assistant-custom-components-wiim/issues",
   "after_dependencies": ["http", "media_source"],
@@ -11,7 +11,7 @@
     "@nicjo814",
     "@limych",
     "@nagyrobi",
-	"@onlyoneme"
+    "@onlyoneme"
   ],
   "requirements": [
     "async-upnp-client>=0.31.2",

@@ -78,9 +78,14 @@ ATTR_DEBUG = 'debug_info'
 ATTR_BITRATE = 'bit_rate'
 ATTR_SAMPLERATE = 'sample_rate'
 ATTR_DEPTH = 'bit_depth'
+ATTR_FIXED_VOL = 'fixed_vol'
 
 CONF_NAME = 'name'
+CONF_VOLUME_STEP = 'volume_step'
 CONF_UUID = 'uuid'
+
+DEFAULT_VOLUME_STEP = 5
+
 
 DEBUGSTR_ATTR = True
 MAX_VOL = 100
@@ -112,6 +117,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_NAME): cv.string,
         vol.Optional(CONF_UUID, default=''): cv.string,
+        vol.Optional(CONF_VOLUME_STEP, default=DEFAULT_VOLUME_STEP): vol.All(int, vol.Range(min=1, max=25)),
     }
 )
 
@@ -133,6 +139,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     name = config.get(CONF_NAME)
     host = config.get(CONF_HOST)
     uuid = config.get(CONF_UUID)
+    volume_step = config.get(CONF_VOLUME_STEP)
+
 
     state = STATE_IDLE
 
@@ -173,6 +181,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     wiim = WiiMDevice(name, 
                       host, 
+                      volume_step,
                       uuid,
                       state,
                       hass)
@@ -185,6 +194,7 @@ class WiiMDevice(MediaPlayerEntity):
     def __init__(self, 
                  name, 
                  host, 
+                 volume_step,
                  uuid,
                  state,
                  hass):
@@ -203,6 +213,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._icon = ICON_DEFAULT
         self._state = state
         self._volume = 0
+        self._volume_step = volume_step
         self._source = None
 
         self._muted = False
@@ -239,6 +250,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._samplerate = None
         self._bitrate = None
         self._bitdepth = None
+        self._fixed_volume = None
 
     async def async_added_to_hass(self):
         """Record entity."""
@@ -397,7 +409,12 @@ class WiiMDevice(MediaPlayerEntity):
                         try:
                             self._fw_ver = device_status['firmware']
                         except KeyError:
-                            self._fw_ver = '1.0.0'							
+                            self._fw_ver = '1.0.0'
+
+                        try:
+                            self._fixed_volume = device_status['volume_control']
+                        except KeyError:
+                            pass							
 
                         try:
                             self._preset_key = int(device_status['preset_key'])
@@ -586,23 +603,31 @@ class WiiMDevice(MediaPlayerEntity):
                 self._features = \
                 MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
                 MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
-                MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET | MediaPlayerEntityFeature.SEEK
+                MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET | MediaPlayerEntityFeature.SEEK | \
+                MediaPlayerEntityFeature.VOLUME_MUTE
             else:
                 self._features = \
                 MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
                 MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
-                MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET
+                MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET | \
+                MediaPlayerEntityFeature.VOLUME_MUTE
 
         elif self._playing_stream:
             self._features = \
             MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
             MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
-            MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK
+            MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | \
+            MediaPlayerEntityFeature.VOLUME_MUTE
 
         elif self._playing_idle:
             self._features = \
             MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
-            MediaPlayerEntityFeature.STOP
+            MediaPlayerEntityFeature.STOP | \
+            MediaPlayerEntityFeature.VOLUME_MUTE
+
+        if self._fixed_volume == '0':
+            self._features |= MediaPlayerEntityFeature.VOLUME_SET
+            self._features |= MediaPlayerEntityFeature.VOLUME_STEP
 
         return self._features	
 		
@@ -699,6 +724,8 @@ class WiiMDevice(MediaPlayerEntity):
             attributes[ATTR_DEPTH] = '24'
         elif self._bitdepth:
             attributes[ATTR_DEPTH] = self._bitdepth
+        if self._fixed_volume:
+            attributes[ATTR_FIXED_VOL] = self._fixed_volume
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
@@ -742,6 +769,11 @@ class WiiMDevice(MediaPlayerEntity):
     def fw_ver(self):
         """Return the firmware version number of the device."""
         return self._fw_ver		
+
+    @property
+    def fixed_vol(self):
+        """Return the fixed volume option."""
+        return self._fixed_volume
 
     async def async_media_next_track(self):
         """Send media_next command to media player."""
@@ -1007,6 +1039,59 @@ class WiiMDevice(MediaPlayerEntity):
             _LOGGER.warning("Failed to change repeat mode. Device: %s, Got response: %s", self.entity_id, value)
 
 
+    async def async_volume_up(self):
+        """Increase volume one step"""
+
+        if self._fixed_volume == '1':
+            return
+        if int(self._volume) == 100 and not self._muted:
+            return
+
+        volume = int(self._volume) + int(self._volume_step)
+        if volume > 100:
+            volume = 100
+
+        await self.async_volume(volume)
+
+
+    async def async_volume_down(self):
+        """Decrease volume one step."""
+
+        if self._fixed_volume == '1':
+            return
+        if int(self._volume) == 0:
+            return
+
+        volume = int(self._volume) - int(self._volume_step)
+        if volume < 0:
+            volume = 0
+
+
+        await self.async_volume(volume)
+
+
+    async def async_set_volume_level(self, volume):
+        """Set volume level, input range 0..1, WiiM device 0..100."""
+
+        if self._fixed_volume == '1':
+            return
+        volume = str(round(int(volume * MAX_VOL)))
+
+        await self.async_volume(volume)
+
+    async def async_mute_volume(self, mute):
+        """Mute (true) or unmute (false) media player."""
+
+        value = await self.call_wiim_httpapi("setPlayerCmd:mute:{0}".format(str(int(mute))), None)
+            
+        if value == "OK":
+            self._muted = bool(int(mute))
+        else:
+            _LOGGER.warning("Failed mute/unmute volume. Device: %s, Got response: %s", self.entity_id, value)
+
+
+
+
     async def async_detect_stream_url_redirection(self, uri):
         if uri.find('tts_proxy') != -1: # skip redirect check for local TTS streams
             return uri
@@ -1140,7 +1225,18 @@ class WiiMDevice(MediaPlayerEntity):
             else:
                 _LOGGER.warning("Wrong preset number %s. Device: %s, has to be integer between 1 and %s", self.entity_id, preset, self._preset_key)
 
-		
+    async def async_volume(self, volume):
+        if volume != None:
+            if int(volume) >= 0 and int(volume) <= 100:
+                value = await self.call_wiim_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
+
+                if value != "OK":
+                    _LOGGER.warning("Failed to set volume %s. " "Device: %s, Got response: %s", self.entity_id, volume, value)
+                else:
+                    self._volume = volume
+            else:
+                _LOGGER.warning("Wrong volume value %s. Device: %s, has to be integer between 0 and 100", self.entity_id, volume)
+				
 		
     async def async_execute_command(self, command, notif):
         """Execute desired command against the player using factory API."""
