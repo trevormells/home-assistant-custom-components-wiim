@@ -28,7 +28,7 @@ media_player:
       host: 192.168.1.12
       name: Sound Room2
       uuid: 'FF31F09E82A6BBC1A2CB6D80'
-	  volume_step: 10
+      volume_step: 10
 ```
 
 ### Configuration Variables
