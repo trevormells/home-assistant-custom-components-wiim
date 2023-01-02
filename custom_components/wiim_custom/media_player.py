@@ -79,6 +79,8 @@ ATTR_BITRATE = 'bit_rate'
 ATTR_SAMPLERATE = 'sample_rate'
 ATTR_DEPTH = 'bit_depth'
 ATTR_FIXED_VOL = 'fixed_vol'
+ATTR_SLAVE = 'slave'
+ATTR_MASTER_UUID = 'master_uuid'
 
 CONF_NAME = 'name'
 CONF_VOLUME_STEP = 'volume_step'
@@ -252,6 +254,9 @@ class WiiMDevice(MediaPlayerEntity):
         self._bitrate = None
         self._bitdepth = None
         self._fixed_volume = None
+		
+        self._slave = None
+        self._master_uuid = None
 
     async def async_added_to_hass(self):
         """Record entity."""
@@ -355,7 +360,9 @@ class WiiMDevice(MediaPlayerEntity):
             self._samplerate = None
             self._bitrate = None
             self._bitdepth = None
-            self._features = None		
+            self._features = None	
+            self._slave = None
+            self._master_uuid = None			
             return
         self._player_statdata = resp1.copy()
         self._player_deviceinfo = resp2.copy()
@@ -434,6 +441,8 @@ class WiiMDevice(MediaPlayerEntity):
 
             self._pl_tracks = self._player_mediainfo['NrTracks']
             self._pl_trackc = self._player_statdata['Track']
+            self._slave = self._player_statdata['SlaveFlag']
+            self._master_uuid = self._player_statdata['MasterUUID']
 
             #_LOGGER.debug("04 Update VOL, Shuffle, Repeat, STATE %s, %s", self.entity_id, self._name)
             self._volume = self._player_statdata['CurrentVolume']
@@ -726,6 +735,12 @@ class WiiMDevice(MediaPlayerEntity):
             attributes[ATTR_DEPTH] = self._bitdepth
         if self._fixed_volume:
             attributes[ATTR_FIXED_VOL] = self._fixed_volume
+			
+        if self._slave:
+            attributes[ATTR_SLAVE] = self._slave
+			
+        if self._master_uuid:
+            attributes[ATTR_MASTER_UUID] = self._master_uuid
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
