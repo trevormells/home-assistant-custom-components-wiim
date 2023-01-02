@@ -18,7 +18,7 @@ command:
       selector:
         select:
           options:
-            - Rescan
+            - rescan
             - reboot
     notify:
       name: Notification

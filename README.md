@@ -1,6 +1,6 @@
-# WiiM Mini devices
+# WiiM devices
 
-This component allows you to integrate control of WiiM Mini devices into your [Home Assistant](http://www.home-assistant.io) smart home system. Originally developed for LinkPlay devices by @nicjo814, @limych and @nagyrobi.
+This component allows you to integrate control of WiiM Mini and Pro devices into your [Home Assistant](http://www.home-assistant.io) smart home system. Originally developed for LinkPlay devices by @nicjo814, @limych and @nagyrobi.
 
 
 ## Installation

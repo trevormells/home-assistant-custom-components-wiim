@@ -1,5 +1,5 @@
 """
-Support for WiiM Mini devices.
+Support for WiiM devices.
 
 For more details about this platform, please refer to the documentation at
 https://github.com/onlyoneme/home-assistant-custom-components-wiim
@@ -102,6 +102,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
+			   '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
                '31': 'Spotify',
@@ -109,7 +110,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_STREAM = ['1', '2', '3', '10', '20']
+SOURCES_STREAM = ['1', '2', '3', '5', '10', '20']
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -562,7 +563,7 @@ class WiiMDevice(MediaPlayerEntity):
         if self._muted:
             return ICON_MUTED
 
-        if self._source == "DLNA" or self._source == "Airplay" or self._source == "Amazon" or self._source == "Spotify" or self._source == "TIDAL":
+        if self._source == "DLNA" or self._source == "Airplay" or self._source == "Amazon" or self._source == "Spotify" or self._source == "TIDAL" or self._source == "Chromecast":
             return ICON_PUSHSTREAM
 
         if self._state == STATE_PLAYING:
@@ -697,12 +698,11 @@ class WiiMDevice(MediaPlayerEntity):
 
     @property
     def extra_state_attributes(self):
-        """List members in group and set master and slave state."""
         attributes = {}
 
-        attributes[ATTR_SAMPLERATE] = ''
-        attributes[ATTR_BITRATE] = ''
-        attributes[ATTR_DEPTH] = ''
+        #attributes[ATTR_SAMPLERATE] = ''
+        #attributes[ATTR_BITRATE] = ''
+        #attributes[ATTR_DEPTH] = ''
 
         if self._media_uri:
             attributes[ATTR_STURI] = self._media_uri
@@ -1240,7 +1240,7 @@ class WiiMDevice(MediaPlayerEntity):
 		
     async def async_execute_command(self, command, notif):
         """Execute desired command against the player using factory API."""
-        if command == 'Rescan':
+        if command == 'rescan':
             self._unav_throttle = False
             self._first_update = True
             value = "Scheduled to Rescan"
@@ -1262,17 +1262,17 @@ class WiiMDevice(MediaPlayerEntity):
         """Update track info via UPNP."""
         import validators
 
-        if self._player_mediainfo is None:
+        if self._player_statdata is None: #self._player_mediainfo is None:  
             return
 
         media_metadata = None
         try:
-            self._trackc = self._player_mediainfo.get('CurrentURI')
-            self._media_uri_final = self._player_mediainfo.get('TrackSource')
-            media_metadata = self._player_mediainfo.get('CurrentURIMetaData')
-            #_LOGGER.debug("GetMediaInfo for: %s, UPNP media_metadata:%s", self.entity_id, self._player_mediainfo)
+            self._trackc = self._player_statdata.get('TrackURI') #self._trackc = self._player_mediainfo.get('CurrentURI')
+            self._media_uri_final = self._player_statdata.get('TrackSource') #self._media_uri_final = self._player_mediainfo.get('TrackSource')
+            media_metadata = self._player_statdata.get('TrackMetaData') #media_metadata = self._player_mediainfo.get('CurrentURIMetaData')
+            #_LOGGER.debug("GetInfoEx for: %s, UPNP media_metadata:%s", self.entity_id, self._player_statdata)
         except:
-            _LOGGER.warning("GetMediaInfo/CurrentURIMetaData UPNP error: %s", self.entity_id)
+            _LOGGER.warning("GetInfoEx UPNP error: %s", self.entity_id)
 
         self._media_title = None
         self._media_album = None

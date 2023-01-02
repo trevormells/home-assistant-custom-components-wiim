@@ -1,5 +1,5 @@
 """
-Support for WiiM Mini devices.
+Support for WiiM devices.
 
 For more details about this platform, please refer to the documentation at
 https://github.com/onlyoneme/home-assistant-custom-components-wiim
