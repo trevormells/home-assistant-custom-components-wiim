@@ -382,7 +382,7 @@ class WiiMDevice(MediaPlayerEntity):
                 self._upnp_device = await self._factory.async_create_device(url)
             except:
                 _LOGGER.warning(
-                    "Failed communicating with WiiM (UPnP) '%s'", self._name
+                    "Failed communicating with WiiM (UPnP) '%s' at %s", self._name, self._host
                 )
 
         if self._unav_throttle:
@@ -451,12 +451,14 @@ class WiiMDevice(MediaPlayerEntity):
             self._shuffle = {
                 2: True,
                 3: True,
+                5: True,
             }.get(self._player_statdata['LoopMode'], False)
 
             self._repeat = {
                 0: REPEAT_MODE_ALL,
                 1: REPEAT_MODE_ONE,
                 2: REPEAT_MODE_ALL,
+                5: REPEAT_MODE_ONE,
             }.get(self._player_statdata['LoopMode'], REPEAT_MODE_OFF)
 
             
@@ -1024,10 +1026,14 @@ class WiiMDevice(MediaPlayerEntity):
 		
     async def async_set_shuffle(self, shuffle):
         """Change the shuffle mode."""
-
+        self._shuffle = shuffle
         if shuffle:
-            self._shuffle = shuffle
-            mode = '3' if self._repeat == REPEAT_MODE_OFF else '2'
+            if self._repeat == REPEAT_MODE_OFF:
+                mode = '3'
+            elif self._repeat == REPEAT_MODE_ALL:
+                mode = '2'
+            elif self._repeat == REPEAT_MODE_ONE:
+                mode = '3' #'5' is buggy
         else:
             if self._repeat == REPEAT_MODE_OFF:
                 mode = '4'
@@ -1042,13 +1048,14 @@ class WiiMDevice(MediaPlayerEntity):
 
     async def async_set_repeat(self, repeat):
         """Change the repeat mode."""
+        #_LOGGER.debug("Setting repeat: %s on %s, %s", repeat, self.entity_id, self._name) 
         self._repeat = repeat
         if repeat == REPEAT_MODE_OFF:
             mode = '3' if self._shuffle else '4'
         elif repeat == REPEAT_MODE_ALL:
             mode = '2' if self._shuffle else '0'
         elif repeat == REPEAT_MODE_ONE:
-            mode = '1'
+            mode = '3' if self._shuffle else '1' #'5' is buggy
         value = await self.call_wiim_httpapi("setPlayerCmd:loopmode:{0}".format(mode), None)
         if value != "OK":
             _LOGGER.warning("Failed to change repeat mode. Device: %s, Got response: %s", self.entity_id, value)
