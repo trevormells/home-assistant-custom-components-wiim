@@ -10,6 +10,7 @@ This component allows you to integrate control of WiiM Mini and Pro devices into
 ## Supported features:
 - Retrieval of current playing content metadata
 - Basic player control
+- Selectable inputs
 
 
 ## Component authors & contributors

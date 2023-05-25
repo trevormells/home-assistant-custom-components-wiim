@@ -8,6 +8,7 @@ import logging
 import voluptuous as vol
 
 from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.components.media_player.const import MEDIA_TYPE_URL
 from homeassistant.helpers import config_validation as cv
 
 DOMAIN = 'wiim_custom'
@@ -25,7 +26,7 @@ ATTR_PRESET = 'preset'
 
 
 CMND_SERVICE_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Required(ATTR_CMD): cv.string,
     vol.Optional(ATTR_NOTIF, default=True): cv.boolean
 })
@@ -36,7 +37,7 @@ PLAY_URL_SERVICE_SCHEMA = vol.Schema({
 })
 
 PRESET_BUTTON_SCHEMA = vol.Schema({
-    vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+    vol.Required(ATTR_ENTITY_ID): cv.comp_entity_ids,
     vol.Required(ATTR_PRESET): cv.positive_int
 })
 
@@ -70,7 +71,7 @@ def setup(hass, config):
             for device in entities:
                 if device.entity_id in entity_ids:
                     _LOGGER.debug("**PLAY URL** entity: %s; url: %s", device.entity_id, url)
-                    await device.call_wiim_httpapi("setPlayerCmd:play:{0}".format(url), None)
+                    await device.async_play_media(MEDIA_TYPE_URL, url)
         elif service.service == SERVICE_PRESET:
             preset = service.data.get(ATTR_PRESET)
             for device in entities:

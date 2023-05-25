@@ -19,7 +19,7 @@ from aiohttp.client_exceptions import ClientError
 
 from async_upnp_client.client_factory import UpnpFactory
 from async_upnp_client.aiohttp import AiohttpRequester
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 
 from homeassistant.util import Throttle
 from homeassistant.util.dt import utcnow
@@ -56,6 +56,7 @@ from homeassistant.const import (
     STATE_PLAYING,
     STATE_UNKNOWN,
     STATE_UNAVAILABLE,
+    STATE_BUFFERING,
 )
 
 
@@ -66,12 +67,14 @@ _LOGGER = logging.getLogger(__name__)
 ICON_DEFAULT = 'mdi:speaker'
 ICON_PLAYING = 'mdi:speaker-wireless'
 ICON_MUTED = 'mdi:speaker-off'
+ICON_BLUETOOTH = 'mdi:speaker-bluetooth'
 ICON_PUSHSTREAM = 'mdi:cast-audio'
 
 ATTR_FWVER = 'firmware'
-ATTR_TRCNT = 'pl_tracks'
-ATTR_TRCRT = 'pl_track_current'
-ATTR_TRCRC = 'track_current'
+ATTR_DEVMODEL = 'device_model'
+ATTR_PL_TRACKS = 'pl_tracks'
+ATTR_PL_TRCRT = 'pl_track_current'
+ATTR_TRCRT = 'track_current'
 ATTR_STURI = 'stream_uri'
 ATTR_UUID = 'uuid'
 ATTR_DEBUG = 'debug_info'
@@ -99,19 +102,29 @@ UNA_THROTTLE = timedelta(seconds=20)
 CONNECT_PAUSED_TIMEOUT = timedelta(seconds=300)
 AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
 
+MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
+             'WiiM_Pro_with_gc4a': 'WiiM Pro'}
+
+SOURCES = {'line-in': 'Analog', 
+           'optical': 'Toslink'}
+
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
-			   '5': 'Chromecast',
+               '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
                '31': 'Spotify',
-               '32': 'TIDAL',			   
+               '32': 'TIDAL',
+               '40': 'Analog',
+               '41': 'Bluetooth',
+               '43': 'Toslink',			   
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
+SOURCES_LIVEIN = ['40', '41', '43']
 SOURCES_STREAM = ['1', '2', '3', '5', '10', '20']
 SOURCES_CONNECT = ['31', '32']
 
@@ -204,6 +217,7 @@ class WiiMDevice(MediaPlayerEntity):
         """Initialize the media player."""
         self._uuid = uuid
         self._fw_ver = '1.0.0'
+        self._device_model = 'Unknown'
         requester = AiohttpRequester(UPNP_TIMEOUT)
         self._factory = UpnpFactory(requester, disable_unknown_out_argument_error=True)
         self._upnp_device = None
@@ -218,6 +232,8 @@ class WiiMDevice(MediaPlayerEntity):
         self._volume = 0
         self._volume_step = volume_step
         self._source = None
+        self._prev_source = None
+        self._source_list = SOURCES.copy()
 
         self._muted = False
         self._playhead_position = 0
@@ -235,6 +251,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._media_image_url = None
         self._media_uri = None
         self._media_uri_final = None
+        self._media_source_uri = None
         self._player_statdata = {}
         self._player_mediainfo = {}
         self._player_deviceinfo = {}
@@ -245,10 +262,10 @@ class WiiMDevice(MediaPlayerEntity):
         self._trackc = None
 
         self._playing_stream = False
-        self._playing_idle = True
+        self._playing_liveinput = False
         self._playing_connect = False
         self._playing_mediabrowser = False
-  
+        self._wait_for_mcu = 0
         self._unav_throttle = False
         self._samplerate = None
         self._bitrate = None
@@ -329,9 +346,10 @@ class WiiMDevice(MediaPlayerEntity):
                 resp2 = False
                 resp3 = False
         if resp1 is False or resp2 is False or resp3 is False:
-            _LOGGER.debug('Unable to connect to device: %s, %s', self.entity_id, self._name)
+            _LOGGER.debug('Unable to connect to device via UPnP: %s, %s', self.entity_id, self._name)
             self._state = STATE_UNAVAILABLE
             self._unav_throttle = True
+            self._wait_for_mcu = 0
             self._playhead_position = None
             self._duration = None
             self._position_updated_at = None
@@ -341,12 +359,13 @@ class WiiMDevice(MediaPlayerEntity):
             self._media_image_url = None
             self._media_uri = None
             self._media_uri_final = None
+            self._media_source_uri = None
             self._trackc = None
             self._pl_tracks = None
             self._pl_trackc = None
             self._playing_mediabrowser = False
             self._playing_stream = False
-            self._playing_idle = True
+            self._playing_liveinput = False
             self._playing_connect = False
             self._source = None
             self._upnp_device = None
@@ -397,7 +416,7 @@ class WiiMDevice(MediaPlayerEntity):
         if isinstance(self._player_statdata, dict):
             self._unav_throttle = False
             if self._first_update or (self._state == STATE_UNAVAILABLE):
-                #_LOGGER.debug("03 Update first time getStatus %s, %s", self.entity_id, self._name)
+                #_LOGGER.debug("03 Update first time getStatusEx %s, %s", self.entity_id, self._name)
                 device_status = await self.call_wiim_httpapi("getStatusEx", True)
                 if device_status is not None:
                     if isinstance(device_status, dict):
@@ -418,6 +437,11 @@ class WiiMDevice(MediaPlayerEntity):
                             self._fw_ver = device_status['firmware']
                         except KeyError:
                             self._fw_ver = '1.0.0'
+
+                        try:
+                            self._device_model = MODEL_MAP.get(device_status['project'], 'Unknown')
+                        except KeyError:
+                            self._device_model = 'Unknown'
 
                         try:
                             self._fixed_volume = device_status['volume_control']
@@ -466,11 +490,14 @@ class WiiMDevice(MediaPlayerEntity):
                 if utcnow() >= (self._idletime_updated_at + AUTOIDLE_STATE_TIMEOUT):
                     self._state = STATE_IDLE
                     #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
-            elif self._player_statdata['CurrentTransportState'] in ['PLAYING', 'TRANSITIONING']:
+            elif self._player_statdata['CurrentTransportState'] in ['PLAYING']:
                 self._state = STATE_PLAYING
                 #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
-            elif self._player_statdata['CurrentTransportState'] == 'PAUSED_PLAYBACK':
+            elif self._player_statdata['CurrentTransportState'] in ['PAUSED_PLAYBACK']:
                 self._state = STATE_PAUSED
+                #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
+            elif self._player_statdata['CurrentTransportState'] in ['TRANSITIONING']:
+                self._state = STATE_BUFFERING
                 #_LOGGER.debug("05 DETECTED %s, %s", self.entity_id, self._state)
 
             if self._state in [STATE_PLAYING, STATE_PAUSED]:
@@ -485,16 +512,17 @@ class WiiMDevice(MediaPlayerEntity):
 
             #_LOGGER.debug("05 Update self._playing_whatever %s, %s", self.entity_id, self._name)
             self._playing_connect = self._player_statdata['PlayType'] in SOURCES_CONNECT		
-            self._playing_idle = self._player_statdata['PlayType'] in SOURCES_IDLE
+            self._playing_liveinput = self._player_statdata['PlayType'] in SOURCES_LIVEIN
             self._playing_stream = self._player_statdata['PlayType'] in SOURCES_STREAM
 
-            self._playing_mediabrowser = bool(self._player_statdata['PlayType'] in ['10', '20'])
+            if self._player_statdata['PlayType'] not in ['10', '20']:
+                self._playing_mediabrowser = False
 
 
             self._source = SOURCES_MAP.get(self._player_statdata['PlayType'], 'Network')			
 
 
-            if self._source != 'Network' and not (self._playing_stream or self._playing_connect):
+            if self._playing_liveinput:
                 #_LOGGER.debug("08 Line Inputs: %s, %s", self.entity_id, self._name)
                 if self._source == 'Idle':
                     self._state = STATE_IDLE
@@ -506,24 +534,10 @@ class WiiMDevice(MediaPlayerEntity):
                 self._media_artist = None
                 self._media_album = None
                 self._media_image_url = None
+                self._connect_paused_at = None
 
-            #if self._player_statdata['PlayType'] in ['1', '2', '3']:
-                #_LOGGER.debug("08 Line Inputs name playing: %s, %s", self.entity_id, self._name)
-                #self._state = STATE_PLAYING
-                #self._media_title = self._source
-
-            if self._playing_connect and self._state == STATE_IDLE:
-                self._source = None
-
-            if self._connect_paused_at != None:
-                if utcnow() >= (self._connect_paused_at + CONNECT_PAUSED_TIMEOUT):
-                    # Prevent sticking in Pause mode for a long time (Spotify doesn't have a stop button on the app)
-                    await self.async_media_stop()
-                    return
-
-
-            if self._playing_connect:
-                #_LOGGER.debug("09 it's playing spotifty: %s, %s", self.entity_id, self._name)
+            elif self._playing_connect:
+                #_LOGGER.debug("09 it's playing Spotify/Tidal: %s, %s", self.entity_id, self._name)
                 if self._state != STATE_IDLE:
                     await self.async_update_via_upnp()
                 if self._state == STATE_PAUSED:
@@ -532,21 +546,32 @@ class WiiMDevice(MediaPlayerEntity):
                 else:
                     self._connect_paused_at = None
 
-            elif self._playing_stream:
+                if self._state == STATE_IDLE:
+                    self._source = None
+
+            elif self._playing_stream and not self._playing_mediabrowser:
                 if self._state != STATE_IDLE:
                     await self.async_update_via_upnp()
                 self._connect_paused_at = None
             else:
                 #_LOGGER.debug("09 it's playing something else: %s, %s", self.entity_id, self._name)
                 self._connect_paused_at = None
+                self._media_artist = None
+                self._media_album = None
+                self._media_image_url = None
                 if self._state not in [STATE_PLAYING, STATE_PAUSED]:
                     self._media_title = None
-                    self._media_artist = None
-                    self._media_album = None
-                    self._media_image_url = None
+                else:
+                    self._media_title = self._source
 
             self._media_prev_artist = self._media_artist
             self._media_prev_title = self._media_title
+
+            #    if self._connect_paused_at != None:
+            #        if utcnow() >= (self._connect_paused_at + CONNECT_PAUSED_TIMEOUT):
+            #            # Prevent sticking in Pause mode for a long time (Spotify doesn't have a stop button on the app)
+            #            await self.async_media_stop()
+            #            return
 
         else:
             _LOGGER.error("Erroneous JSON during update and process self._player_statdata: %s, %s", self.entity_id, self._name)
@@ -574,7 +599,10 @@ class WiiMDevice(MediaPlayerEntity):
         if self._muted:
             return ICON_MUTED
 
-        if self._source == "DLNA" or self._source == "Airplay" or self._source == "Amazon" or self._source == "Spotify" or self._source == "TIDAL" or self._source == "Chromecast":
+        if self._source == "Bluetooth":
+            return ICON_BLUETOOTH
+
+        if self._playing_connect or (self._playing_stream and not self._playing_mediabrowser):
             return ICON_PUSHSTREAM
 
         if self._state == STATE_PLAYING:
@@ -607,37 +635,57 @@ class WiiMDevice(MediaPlayerEntity):
             return None
 
     @property
+    def source_list(self):
+        """Return the list of available input sources."""
+        source_list = self._source_list.copy()
+
+        if self._device_model != 'WiiM Pro' and 'optical' in source_list:
+            del source_list['optical']
+
+        if len(source_list) > 0:
+            return list(source_list.values())
+        else:
+            return None
+
+    @property
     def supported_features(self):
         """Flag media player features that are supported."""
 
-        if self._playing_connect or self._playing_mediabrowser:
+        if self._playing_connect:
             if self._state in [STATE_PLAYING, STATE_PAUSED]:
                 self._features = \
-                MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
+                MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SELECT_SOURCE | \
                 MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
                 MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET | MediaPlayerEntityFeature.SEEK | \
                 MediaPlayerEntityFeature.VOLUME_MUTE
             else:
                 self._features = \
-                MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
+                MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SELECT_SOURCE | \
                 MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
                 MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET | \
                 MediaPlayerEntityFeature.VOLUME_MUTE
-
         elif self._playing_stream:
             self._features = \
-            MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
+            MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SELECT_SOURCE | \
             MediaPlayerEntityFeature.STOP | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | \
-            MediaPlayerEntityFeature.NEXT_TRACK | MediaPlayerEntityFeature.PREVIOUS_TRACK | \
             MediaPlayerEntityFeature.VOLUME_MUTE
+            if not self._playing_mediabrowser:
+                self._features |= MediaPlayerEntityFeature.NEXT_TRACK 
+                self._features |= MediaPlayerEntityFeature.PREVIOUS_TRACK
+                self._features |= MediaPlayerEntityFeature.SHUFFLE_SET
+                self._features |= MediaPlayerEntityFeature.REPEAT_SET				
 
-        elif self._playing_idle:
+        elif self._playing_liveinput:
             self._features = \
-            MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | \
+            MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SELECT_SOURCE | \
             MediaPlayerEntityFeature.STOP | \
             MediaPlayerEntityFeature.VOLUME_MUTE
+        else:
+            self._features = \
+            MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SELECT_SOURCE | \
+            MediaPlayerEntityFeature.VOLUME_MUTE
 
-        if self._fixed_volume == '0':
+        if self._features is not None and self._fixed_volume == '0':
             self._features |= MediaPlayerEntityFeature.VOLUME_SET
             self._features |= MediaPlayerEntityFeature.VOLUME_STEP
 
@@ -662,7 +710,7 @@ class WiiMDevice(MediaPlayerEntity):
     @property
     def media_position_updated_at(self):
         """When the seek position was last updated."""
-        if not self._playing_idle and self._state == STATE_PLAYING:
+        if not self._playing_liveinput and self._state == STATE_PLAYING:
             return self._position_updated_at
         else:
             return None
@@ -720,11 +768,11 @@ class WiiMDevice(MediaPlayerEntity):
         if self._media_uri_final:
             attributes[ATTR_STURI] = self._media_uri_final
         if self._pl_tracks:
-            attributes[ATTR_TRCNT] = self._pl_tracks
+            attributes[ATTR_PL_TRACKS] = self._pl_tracks
         if self._pl_trackc:
-            attributes[ATTR_TRCRT] = self._pl_trackc
+            attributes[ATTR_PL_TRCRT] = self._pl_trackc
         if self._trackc:
-            attributes[ATTR_TRCRC] = self._trackc
+            attributes[ATTR_TRCRT] = self._trackc
         if self._uuid != '':
             attributes[ATTR_UUID] = self._uuid
         if self._samplerate:
@@ -753,8 +801,8 @@ class WiiMDevice(MediaPlayerEntity):
             if self._playing_stream:
                 atrdbg = atrdbg + " _playing_stream"
 
-            if self._playing_idle:
-                atrdbg = atrdbg + " _playing_idle"
+            if self._playing_liveinput:
+                atrdbg = atrdbg + " _playing_liveinput"
                 
             if self._playing_mediabrowser:
                 atrdbg = atrdbg + " _playing_mediabrowser"
@@ -763,6 +811,8 @@ class WiiMDevice(MediaPlayerEntity):
 
         if self._state != STATE_UNAVAILABLE:
             attributes[ATTR_FWVER] = self._fw_ver
+            attributes[ATTR_DEVMODEL] = self._device_model
+
 			
         return attributes	
 
@@ -788,6 +838,10 @@ class WiiMDevice(MediaPlayerEntity):
         return self._fw_ver		
 
     @property
+    def device_model(self):
+        return self._device_model
+
+    @property
     def fixed_vol(self):
         """Return the fixed volume option."""
         return self._fixed_volume
@@ -800,6 +854,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._duration = 0
         self._position_updated_at = utcnow()
         self._trackc = None
+        self._wait_for_mcu = 2
         if value != "OK":
             _LOGGER.warning("Failed skip to next track. Device: %s, Got response: %s", self.entity_id, value)
 
@@ -812,6 +867,7 @@ class WiiMDevice(MediaPlayerEntity):
         self._duration = 0
         self._position_updated_at = utcnow()
         self._trackc = None
+        self._wait_for_mcu = 2
         if value != "OK":
             _LOGGER.warning("Failed to skip to previous track." " Device: %s, Got response: %s", self.entity_id, value)
 
@@ -819,7 +875,12 @@ class WiiMDevice(MediaPlayerEntity):
         """Send media_play command to media player."""
         if self._state == STATE_PAUSED:
             value = await self.call_wiim_httpapi("setPlayerCmd:resume", None)
+        elif self._prev_source != None:
+            temp_source = next((k for k in self._source_list if self._source_list[k] == self._prev_source), None)
+            if temp_source == None:
+                return
 
+            value = await self.call_wiim_httpapi("setPlayerCmd:play", None)
         else:
             value = await self.call_wiim_httpapi("setPlayerCmd:play", None)
 
@@ -836,7 +897,7 @@ class WiiMDevice(MediaPlayerEntity):
     async def async_media_pause(self):
         """Send media_pause command to media player."""
 
-        if self._playing_stream and not self._playing_mediabrowser:
+        if self._playing_liveinput and not self._playing_mediabrowser:
             # Pausing a live stream will cause a buffer overrun in hardware. Stop is the correct procedure in this case.
             # If the stream is configured as an input source, when pressing Play after this, it will be started again (using self._prev_source).
             await self.async_media_stop()
@@ -857,7 +918,7 @@ class WiiMDevice(MediaPlayerEntity):
     async def async_media_stop(self):
         """Send stop command."""
  
-        if self._playing_connect or self._playing_idle or self._playing_stream:
+        if self._playing_connect or self._playing_liveinput or self._playing_stream:
             await self.call_wiim_httpapi("setPlayerCmd:pause", None)
             await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
 
@@ -868,7 +929,7 @@ class WiiMDevice(MediaPlayerEntity):
             self._playhead_position = 0
             self._duration = 0
             self._media_title = None
- 
+            self._prev_source = self._source
             self._source = None
  
             self._media_artist = None
@@ -876,6 +937,7 @@ class WiiMDevice(MediaPlayerEntity):
 
             self._media_uri = None
             self._media_uri_final = None
+            self._media_source_uri = None
 
             self._playing_mediabrowser = False
             self._playing_stream = False
@@ -899,6 +961,7 @@ class WiiMDevice(MediaPlayerEntity):
             value = await self.call_wiim_httpapi("setPlayerCmd:seek:{0}".format(str(position)), None)
             self._position_updated_at = utcnow()
             self._idletime_updated_at = self._position_updated_at
+            self._wait_for_mcu = 0.2
             if value != "OK":
                 _LOGGER.warning("Failed to seek. Device: %s, Got response: %s", self.entity_id, value)		
 
@@ -910,21 +973,25 @@ class WiiMDevice(MediaPlayerEntity):
         """Play media from a URL or localfile."""
         _LOGGER.debug("Trying to play media. Device: %s, Media_type: %s, Media_id: %s", self.entity_id, media_type, media_id)
 
-        self._playing_mediabrowser = True
+        self._playing_mediabrowser = False
 
-        if not (media_type in [MEDIA_TYPE_URL] or media_source.is_media_source_id(media_id)):
-            _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MEDIA_TYPE_URL)
+        if not (media_type in [MEDIA_TYPE_MUSIC, MEDIA_TYPE_URL] or media_source.is_media_source_id(media_id)):
+            _LOGGER.warning("For: %s Invalid media type %s. Only %s and %s is supported", self._name, media_type, MEDIA_TYPE_MUSIC, MEDIA_TYPE_URL)
             await self.async_media_stop()
             return False
             
-   
-
-
 
         if media_source.is_media_source_id(media_id):
             play_item = await media_source.async_resolve_media(self.hass, media_id, self.entity_id)
             if media_id.find('radio_browser') != -1:  # radios are an exception, be treated by server redirect checker
                 self._playing_mediabrowser = False
+            else:
+                self._playing_mediabrowser = True
+
+            if media_id.find('media_source/local') != -1:
+                self._media_source_uri = media_id
+            else:
+                self._media_source_uri = None
 
             media_id = play_item.url
             if not play_item.mime_type in ['audio/basic',
@@ -961,9 +1028,11 @@ class WiiMDevice(MediaPlayerEntity):
         if media_id_check.startswith('http'):
             media_type = MEDIA_TYPE_URL
 
-        if media_type != MEDIA_TYPE_URL:
+
+        if not media_type in [MEDIA_TYPE_URL]:
             _LOGGER.warning("For: %s Invalid media type %s. Only %s is supported", self._name, media_type, MEDIA_TYPE_URL)
             await self.async_media_stop()
+            self._playing_mediabrowser = False
             return False
 
 
@@ -978,10 +1047,11 @@ class WiiMDevice(MediaPlayerEntity):
         if self._playing_connect:  # disconnect from Spotify before playing new http source
             await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
 
-        if media_id_check.find('.m3u') != -1:
+
+        if media_id_check.endswith('.m3u') or media_id_check.endswith('.m3u8'):
             _LOGGER.debug("For: %s, Detected M3U list: %s, Media_id: %s", self._name, media_id_final, media_id)
             
-            if await self.async_parse_m3u_url(media_id_final):
+            if await self.async_validate_m3u_url(media_id_final):
                 value = await self.call_wiim_httpapi("setPlayerCmd:playlist:{0}:0".format(media_id_final), None)
             else:
                 self._playing_mediabrowser = False
@@ -1020,6 +1090,37 @@ class WiiMDevice(MediaPlayerEntity):
         self._media_uri_final = media_id_final
 
         return True
+
+    async def async_select_source(self, source):
+        """Select input source."""
+
+        temp_source = next((k for k in self._source_list if self._source_list[k] == source), None)
+        if temp_source == None:
+            return
+
+        if self._playing_connect:  
+            await self.call_wiim_httpapi("setPlayerCmd:pause", None)
+            await self.call_wiim_httpapi("setPlayerCmd:switchmode:wifi", None)
+
+
+        if len(self._source_list) > 0:
+            prev_source = next((k for k in self._source_list if self._source_list[k] == self._source), None)
+
+        self._unav_throttle = False
+
+        value = await self.call_wiim_httpapi("setPlayerCmd:switchmode:{0}".format(temp_source), None)
+        if value == "OK":
+            self._state = STATE_PLAYING
+            self._source = source
+            self._media_uri = None
+            self._media_uri_final = None
+            self._playhead_position = 0
+            self._duration = 0
+            self._trackc = None
+            self._position_updated_at = utcnow()
+            self._idletime_updated_at = self._position_updated_at
+        else:
+            _LOGGER.warning("Failed to select source. Device: %s, Got response: %s", self.entity_id, value)
 
 
 
@@ -1137,8 +1238,8 @@ class WiiMDevice(MediaPlayerEntity):
         return check_uri
 	
 		
-    async def async_parse_m3u_url(self, playlist):
-        """Parse an M3U playlist URL for actual streams, and return the first one"""
+    async def async_validate_m3u_url(self, playlist):
+        """Validate an M3U playlist URL for actual streams"""
         try:
             websession = async_get_clientsession(self.hass)
             async with async_timeout.timeout(10):
@@ -1232,6 +1333,10 @@ class WiiMDevice(MediaPlayerEntity):
         """Set the self features property."""
         self._features = features
 
+    async def async_set_wait_for_mcu(self, wait_for_mcu):
+        """Set the wait for mcu processing duration property."""
+        self._wait_for_mcu = wait_for_mcu
+
     async def async_set_unav_throttle(self, unav_throttle):
         """Set update throttle property."""
         self._unav_throttle = unav_throttle		
@@ -1243,9 +1348,9 @@ class WiiMDevice(MediaPlayerEntity):
                 value = await self.call_wiim_httpapi("MCUKeyShortClick:{0}".format(str(preset)), None)
 
                 if value != "OK":
-                    _LOGGER.warning("Failed to recall preset %s. " "Device: %s, Got response: %s", self.entity_id, preset, value)
+                    _LOGGER.warning("Failed to recall preset %s. " "Device: %s, Got response: %s", preset, self.entity_id, value)
             else:
-                _LOGGER.warning("Wrong preset number %s. Device: %s, has to be integer between 1 and %s", self.entity_id, preset, self._preset_key)
+                _LOGGER.warning("Wrong preset number %s. Device: %s, has to be integer between 1 and %s", preset, self.entity_id, self._preset_key)
 
     async def async_volume(self, volume):
         if volume != None:
@@ -1253,11 +1358,11 @@ class WiiMDevice(MediaPlayerEntity):
                 value = await self.call_wiim_httpapi("setPlayerCmd:vol:{0}".format(str(volume)), None)
 
                 if value != "OK":
-                    _LOGGER.warning("Failed to set volume %s. " "Device: %s, Got response: %s", self.entity_id, volume, value)
+                    _LOGGER.warning("Failed to set volume %s. " "Device: %s, Got response: %s", volume, self.entity_id, value)
                 else:
                     self._volume = volume
             else:
-                _LOGGER.warning("Wrong volume value %s. Device: %s, has to be integer between 0 and 100", self.entity_id, volume)
+                _LOGGER.warning("Wrong volume value %s. Device: %s, has to be integer between 0 and 100", volume, self.entity_id)
 				
 		
     async def async_execute_command(self, command, notif):
@@ -1307,8 +1412,12 @@ class WiiMDevice(MediaPlayerEntity):
         if media_metadata is None:
             return
 
-
-        xml_tree = ET.fromstring(media_metadata)
+        try:
+            parser = ET.XMLParser(recover=True)
+            xml_tree = ET.fromstring(media_metadata.encode(), parser)
+        except:
+            _LOGGER.warning("XML parse error for %s, %s", media_metadata, self.entity_id)
+            return
 
         xml_path = "{urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/}item/"
         title_xml_path = "{http://purl.org/dc/elements/1.1/}title"
@@ -1326,6 +1435,21 @@ class WiiMDevice(MediaPlayerEntity):
         rate_hz_node = xml_tree.find("{0}{1}".format(xml_path, rate_hz_xml_path))
         format_s_node = xml_tree.find("{0}{1}".format(xml_path, format_s_xml_path))
         bitrate_node = xml_tree.find("{0}{1}".format(xml_path, bitrate_xml_path))
+
+        if rate_hz_node is None:
+            rate_hz_node_a = xml_tree.xpath("//*[local-name()='song:rate_hz']")
+            if len(rate_hz_node_a or []) > 0:
+                rate_hz_node = rate_hz_node_a[0]    
+
+        if format_s_node is None:
+            format_s_node_a = xml_tree.xpath("//*[local-name()='song:format_s']")
+            if len(format_s_node_a or []) > 0:
+                format_s_node = format_s_node_a[0] 
+
+        if bitrate_node is None:
+            bitrate_node_a = xml_tree.xpath("//*[local-name()='song:bitrate']")		
+            if len(bitrate_node_a or []) > 0:
+                bitrate_node = bitrate_node_a[0] 			
 
         if title_node is not None:
             self._media_title = title_node.text
