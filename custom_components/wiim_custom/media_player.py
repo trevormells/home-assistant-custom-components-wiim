@@ -118,6 +118,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '20': 'Network',			   
                '31': 'Spotify',
                '32': 'TIDAL',
+			   '33': 'Roon',
                '40': 'Analog',
                '41': 'Bluetooth',
                '43': 'Toslink',			   
@@ -125,7 +126,7 @@ SOURCES_MAP = {'-1': 'Idle',
 
 SOURCES_IDLE = ['-1', '0', '99']
 SOURCES_LIVEIN = ['40', '41', '43']
-SOURCES_STREAM = ['1', '2', '3', '5', '10', '20']
+SOURCES_STREAM = ['1', '2', '3', '5', '10', '20', '33']
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
