@@ -103,7 +103,8 @@ CONNECT_PAUSED_TIMEOUT = timedelta(seconds=300)
 AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
 
 MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
-             'WiiM_Pro_with_gc4a': 'WiiM Pro'}
+             'WiiM_Pro_with_gc4a': 'WiiM Pro',
+             'WiiM_Pro_Plus': 'WiiM Pro Plus'}
 
 SOURCES = {'line-in': 'Analog', 
            'optical': 'Toslink'}
@@ -640,7 +641,7 @@ class WiiMDevice(MediaPlayerEntity):
         """Return the list of available input sources."""
         source_list = self._source_list.copy()
 
-        if self._device_model != 'WiiM Pro' and 'optical' in source_list:
+        if self._device_model != 'WiiM Pro' and self._device_model != 'WiiM Pro Plus' and 'optical' in source_list:
             del source_list['optical']
 
         if len(source_list) > 0:
