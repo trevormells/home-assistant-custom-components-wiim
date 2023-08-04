@@ -114,6 +114,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
+			   '4': '???',
                '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
@@ -127,7 +128,7 @@ SOURCES_MAP = {'-1': 'Idle',
 
 SOURCES_IDLE = ['-1', '0', '99']
 SOURCES_LIVEIN = ['40', '41', '43']
-SOURCES_STREAM = ['1', '2', '3', '5', '10', '20', '33']
+SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33']
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
