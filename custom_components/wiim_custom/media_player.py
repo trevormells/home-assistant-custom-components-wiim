@@ -84,6 +84,7 @@ ATTR_DEPTH = 'bit_depth'
 ATTR_FIXED_VOL = 'fixed_vol'
 ATTR_SLAVE = 'slave'
 ATTR_MASTER_UUID = 'master_uuid'
+ATTR_ART_URL = 'art_url'
 
 CONF_NAME = 'name'
 CONF_VOLUME_STEP = 'volume_step'
@@ -121,6 +122,7 @@ SOURCES_MAP = {'-1': 'Idle',
                '31': 'Spotify',
                '32': 'TIDAL',
 			   '33': 'Roon',
+			   '34': 'Squeezelite',
                '40': 'Analog',
                '41': 'Bluetooth',
                '43': 'Toslink',			   
@@ -128,7 +130,7 @@ SOURCES_MAP = {'-1': 'Idle',
 
 SOURCES_IDLE = ['-1', '0', '99']
 SOURCES_LIVEIN = ['40', '41', '43']
-SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33']
+SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -794,6 +796,9 @@ class WiiMDevice(MediaPlayerEntity):
 			
         if self._master_uuid:
             attributes[ATTR_MASTER_UUID] = self._master_uuid
+
+        if self._media_image_url:
+            attributes[ATTR_ART_URL] = self._media_image_url
 
         if DEBUGSTR_ATTR:
             atrdbg = ""
