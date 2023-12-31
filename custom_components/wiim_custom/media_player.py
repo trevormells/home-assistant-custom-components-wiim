@@ -126,11 +126,12 @@ SOURCES_MAP = {'-1': 'Idle',
 			   '34': 'Squeezelite',
                '40': 'Analog',
                '41': 'Bluetooth',
-               '43': 'Toslink',			   
+               '43': 'Toslink',	
+               '49': 'HDMI',			   
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_LIVEIN = ['40', '41', '43']
+SOURCES_LIVEIN = ['40', '41', '43', '49']
 SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
 SOURCES_CONNECT = ['31', '32']
 
