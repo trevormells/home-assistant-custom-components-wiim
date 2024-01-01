@@ -109,7 +109,8 @@ MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
              'WiiM_AMP': 'WiiM Amp'}
 
 SOURCES = {'line-in': 'Analog', 
-           'optical': 'Toslink'}
+           'optical': 'Toslink',
+           'HDMI': 'HDMI'}
 
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
@@ -648,6 +649,9 @@ class WiiMDevice(MediaPlayerEntity):
 
         if self._device_model == 'WiiM Mini' and 'optical' in source_list:
             del source_list['optical']
+
+        if self._device_model != 'WiiM Amp' and 'HDMI' in source_list:
+            del source_list['HDMI']
 
         if len(source_list) > 0:
             return list(source_list.values())
