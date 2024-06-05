@@ -85,7 +85,6 @@ ATTR_FIXED_VOL = 'fixed_vol'
 ATTR_SLAVE = 'slave'
 ATTR_MASTER_UUID = 'master_uuid'
 ATTR_ART_URL = 'art_url'
-
 CONF_NAME = 'name'
 CONF_VOLUME_STEP = 'volume_step'
 CONF_UUID = 'uuid'
@@ -112,12 +111,13 @@ SOURCES = {'line-in': 'Analog',
            'optical': 'Toslink',
            'HDMI': 'HDMI'}
 
+
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
-			   '4': '???',
+			         '4': '???',
                '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
@@ -134,6 +134,7 @@ SOURCES_MAP = {'-1': 'Idle',
 SOURCES_IDLE = ['-1', '0', '99']
 SOURCES_LIVEIN = ['40', '41', '43', '49']
 SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
+
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
