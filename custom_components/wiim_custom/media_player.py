@@ -84,7 +84,7 @@ ATTR_DEPTH = 'bit_depth'
 ATTR_FIXED_VOL = 'fixed_vol'
 ATTR_SLAVE = 'slave'
 ATTR_MASTER_UUID = 'master_uuid'
-
+ATTR_ART_URL = 'art_url'
 CONF_NAME = 'name'
 CONF_VOLUME_STEP = 'volume_step'
 CONF_UUID = 'uuid'
@@ -103,29 +103,38 @@ CONNECT_PAUSED_TIMEOUT = timedelta(seconds=300)
 AUTOIDLE_STATE_TIMEOUT = timedelta(seconds=1)
 
 MODEL_MAP = {'Muzo_Mini': 'WiiM Mini',
-             'WiiM_Pro_with_gc4a': 'WiiM Pro'}
+             'WiiM_Pro_with_gc4a': 'WiiM Pro',
+             'WiiM_Pro_Plus': 'WiiM Pro Plus',
+             'WiiM_AMP': 'WiiM Amp'}
 
 SOURCES = {'line-in': 'Analog', 
-           'optical': 'Toslink'}
+           'optical': 'Toslink',
+           'HDMI': 'HDMI'}
+
 
 SOURCES_MAP = {'-1': 'Idle', 
                '0': 'Idle', 
                '1': 'Airplay', 
                '2': 'DLNA',
                '3': 'Amazon',
+			         '4': '???',
                '5': 'Chromecast',
                '10': 'Network',
                '20': 'Network',			   
                '31': 'Spotify',
                '32': 'TIDAL',
+			   '33': 'Roon',
+			   '34': 'Squeezelite',
                '40': 'Analog',
                '41': 'Bluetooth',
-               '43': 'Toslink',			   
+               '43': 'Toslink',	
+               '49': 'HDMI',			   
                '99': 'Idle'}
 
 SOURCES_IDLE = ['-1', '0', '99']
-SOURCES_LIVEIN = ['40', '41', '43']
-SOURCES_STREAM = ['1', '2', '3', '5', '10', '20']
+SOURCES_LIVEIN = ['40', '41', '43', '49']
+SOURCES_STREAM = ['1', '2', '3', '4', '5', '10', '20', '33', '34']
+
 SOURCES_CONNECT = ['31', '32']
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -639,8 +648,11 @@ class WiiMDevice(MediaPlayerEntity):
         """Return the list of available input sources."""
         source_list = self._source_list.copy()
 
-        if self._device_model != 'WiiM Pro' and 'optical' in source_list:
+        if self._device_model == 'WiiM Mini' and 'optical' in source_list:
             del source_list['optical']
+
+        if self._device_model != 'WiiM Amp' and 'HDMI' in source_list:
+            del source_list['HDMI']
 
         if len(source_list) > 0:
             return list(source_list.values())
@@ -791,6 +803,9 @@ class WiiMDevice(MediaPlayerEntity):
 			
         if self._master_uuid:
             attributes[ATTR_MASTER_UUID] = self._master_uuid
+
+        if self._media_image_url:
+            attributes[ATTR_ART_URL] = self._media_image_url
 
         if DEBUGSTR_ATTR:
             atrdbg = ""

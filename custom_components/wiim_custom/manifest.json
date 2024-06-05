@@ -1,7 +1,7 @@
 {
   "domain": "wiim_custom",
   "name": "WiiM",
-  "version":"0.3.6-beta",
+  "version":"0.3.7-beta",
   "documentation": "https://github.com/onlyoneme/home-assistant-custom-components-wiim",
   "issue_tracker": "https://github.com/onlyoneme/home-assistant-custom-components-wiim/issues",
   "after_dependencies": ["http", "media_source"],
